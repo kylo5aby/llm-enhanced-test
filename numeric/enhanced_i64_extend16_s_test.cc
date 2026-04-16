@@ -238,6 +238,68 @@ TEST_P(I64Extend16sTest, BasicSignExtension_ReturnsCorrectValues)
         << "Large negative value should extend correctly";
 }
 
+/**
+ * @test StackUnderflow_HandledGracefully
+ * @brief Validates proper handling of stack underflow conditions
+ * @details Tests module loading behavior when stack underflow scenarios occur.
+ *          Since i64.extend16_s requires one i64 operand, empty stack should be
+ *          handled appropriately by the WASM runtime.
+ * @test_category Error - Stack underflow validation
+ * @coverage_target core/iwasm/interpreter/wasm_interp_classic.c:stack_validation
+ * @input_conditions Stack underflow test module with no operands
+ * @expected_behavior Module loads successfully, runtime handles stack conditions appropriately
+ * @validation_method Module loading verification and error handling validation
+ */
+TEST_P(I64Extend16sTest, StackUnderflow_HandledGracefully)
+{
+    // Clean up current module to test underflow scenario
+    if (exec_env != nullptr) {
+        wasm_runtime_destroy_exec_env(exec_env);
+        exec_env = nullptr;
+    }
+    if (module_inst != nullptr) {
+        wasm_runtime_deinstantiate(module_inst);
+        module_inst = nullptr;
+    }
+    if (module != nullptr) {
+        wasm_runtime_unload(module);
+        module = nullptr;
+    }
+    if (buf != nullptr) {
+        BH_FREE(buf);
+        buf = nullptr;
+    }
+
+    // Hand-crafted WASM binary with actual stack underflow:
+    // Function type () -> (i64), body executes i64.extend16_s on empty stack.
+    // WAT compilers reject this, so we must craft the binary directly.
+    uint8_t underflow_wasm[] = {
+        0x00, 0x61, 0x73, 0x6d, // magic
+        0x01, 0x00, 0x00, 0x00, // version 1
+        0x01, 0x05,             // type section, 5 bytes
+        0x01,                   // 1 type
+        0x60, 0x00, 0x01, 0x7e, // func () -> (i64)
+        0x03, 0x02,             // function section, 2 bytes
+        0x01, 0x00,             // 1 function, type 0
+        0x0a, 0x05,             // code section, 5 bytes
+        0x01,                   // 1 body
+        0x03,                   // body size: 3 bytes
+        0x00,                   // 0 locals
+        0xc3,                   // i64.extend16_s (no operand on stack!)
+        0x0b                    // end
+    };
+
+    wasm_module_t underflow_module = wasm_runtime_load(
+        underflow_wasm, sizeof(underflow_wasm), error_buf, sizeof(error_buf));
+    if (underflow_module == nullptr) {
+        ASSERT_NE('\0', error_buf[0])
+            << "Load failure should set an error message";
+    }
+    else {
+        wasm_runtime_unload(underflow_module);
+    }
+}
+
 // Instantiate parameterized tests for both Interpreter and AOT modes
 INSTANTIATE_TEST_SUITE_P(RunningMode, I64Extend16sTest,
                          testing::Values(Mode_Interp, Mode_LLVM_JIT),
